@@ -1,14 +1,9 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import React, { useState, useEffect } from "react";
 import { useValet } from "@/context/ValetContext";
 import {
-  Bell,
-  Home,
-  Ticket,
-  List,
   Plus,
   Car,
+  List,
   BellRing,
   BarChart3,
   Lock,
@@ -22,39 +17,17 @@ import TicketList from "@/components/TicketList";
 import EntranceNotificationPanel from "@/components/EntranceNotificationPanel";
 import RevenueAnalysis from "@/components/RevenueAnalysis";
 import PasswordProtection from "@/components/PasswordProtection";
-import { supabase } from "@/integrations/supabase/client";
 import { CarRequest } from "@/context/ValetContext";
 import "@/components/NotificationStyles.css";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { getPasswordByKey } from "@/lib/password-service";
+import { config } from "@/config/app";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { PageFooter } from "@/components/shared/PageFooter";
+import { PasswordDialog } from "@/components/shared/PasswordDialog";
+import { useCarRequestRealtime } from "@/hooks/useCarRequestRealtime";
+import { useNotificationSound } from "@/hooks/useNotificationSound";
 
-// DEVELOPMENT MODE - Set to true to bypass all passwords
-const DEVELOPMENT_MODE = true;
-
-// Define interface for the RealTime payload
-interface CarRequestPayload {
-  new: {
-    id: string;
-    ticket_id: string;
-    status: string;
-    request_time: string;
-  };
-  old: {
-    id: string;
-    ticket_id: string;
-    status: string;
-    request_time: string;
-  };
-  eventType: "INSERT" | "UPDATE" | "DELETE";
-}
+const DEVELOPMENT_MODE = config.developmentMode;
 
 const EntranceDashboard: React.FC = () => {
   const { getPendingRequests, state } = useValet();
@@ -64,7 +37,7 @@ const EntranceDashboard: React.FC = () => {
   const [acceptedRequests, setAcceptedRequests] = useState<CarRequest[]>([]);
   const [newNotificationCount, setNewNotificationCount] = useState(0);
   const [activeTab, setActiveTab] = useState<string>("generate");
-  const notificationSound = useRef<HTMLAudioElement | null>(null);
+  const { playSound } = useNotificationSound();
 
   // Revenue tab password protection
   const [isRevenueAuthenticated, setIsRevenueAuthenticated] =
@@ -101,54 +74,22 @@ const EntranceDashboard: React.FC = () => {
     }
   }, [getPendingRequests, state.carRequests]);
 
-  // Subscribe to real-time updates
-  useEffect(() => {
-    const carRequestsChannel = supabase
-      .channel("entrance-car-requests")
-      // @ts-expect-error - Supabase types don't match implementation
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "car_requests",
-        },
-        async (payload: CarRequestPayload) => {
-          console.log(
-            "Car request change received in Entrance Dashboard:",
-            payload
-          );
-
-          // Handle new car requests
-          if (payload.eventType === "INSERT") {
-            const newData = payload.new;
-            if (newData.status === "pending") {
-           
-              if (activeTab !== "notifications") {
-                playNotificationSound();
-              }
-              
-           
-              if (activeTab !== "notifications") {
-                setNewNotificationCount((prev) => prev + 1);
-              }
-            }
-          }
-
-          // Update local state to reflect changes
-          setPendingRequests(getPendingRequests());
-          setAcceptedRequests(
-            state.carRequests.filter((req) => req.status === "accepted")
-          );
-        }
-      )
-      .subscribe();
-
-   
-    return () => {
-      supabase.removeChannel(carRequestsChannel);
-    };
-  }, [getPendingRequests, state.carRequests, activeTab]);
+  useCarRequestRealtime(
+    "entrance-car-requests",
+    () => {
+      const requests = getPendingRequests();
+      setPendingRequests(requests);
+      setAcceptedRequests(
+        state.carRequests.filter((req) => req.status === "accepted")
+      );
+      
+      if (requests.length > 0 && activeTab !== "notifications") {
+        playSound();
+        setNewNotificationCount((prev) => prev + 1);
+      }
+    },
+    { playSound: false, showToast: false }
+  );
 
   useEffect(() => {
     if (DEVELOPMENT_MODE) {
@@ -277,88 +218,28 @@ const EntranceDashboard: React.FC = () => {
     );
   }
 
-  const playNotificationSound = () => {
-    const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3");
-    audio.volume = 0.5;
-    audio.play().catch((e) => console.error("Audio play failed:", e));
-  };
-
   return (
     <div className="min-h-screen flex flex-col bg-amber-50" dir="rtl">
-      {/* Header */}
-      <header className="bg-white border-b border-amber-200 p-4 shadow-sm">
-        <div className="container mx-auto flex justify-between items-center">
-          <div className="flex items-center">
-            <img
-              src="/lloogo.png"
-              alt="أفضل خدمة صف سيارات"
-              className="h-12 ml-3"
-            />
-            <h1 className="text-xl font-bold text-amber-800">
-              لوحة تحكم المدخل
-            </h1>
-          </div>
-          <div className="flex items-center space-x-4 space-x-reverse">
-            <div className="relative">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-amber-700 hover:text-amber-900 hover:bg-amber-50 relative"
-                onClick={() => {
-                  document.getElementById("notifications-tab")?.click();
-                  setNewNotificationCount(0);
-                }}
-                title="عرض الإشعارات"
-              >
-                <Bell className="h-5 w-5" />
-                {newNotificationCount > 0 && (
-                  <span className="notification-badge">
-                    {newNotificationCount}
-                  </span>
-                )}
-              </Button>
-            </div>
-            <Button
-              variant={isValetMode ? "default" : "ghost"}
-              size="sm"
-              onClick={toggleValetModeDialog}
-              className={`flex items-center ${
-                isValetMode
-                  ? "bg-green-600 hover:bg-green-700 text-white"
-                  : "text-amber-700 hover:text-amber-900 hover:bg-amber-50"
-              }`}
-              title={isValetMode ? "إيقاف وضع المضيف" : "تفعيل وضع المضيف"}
-            >
-              <UserCheck className="h-4 w-4 ml-1" />
-              {isValetMode ? "وضع المضيف مفعل" : "وضع المضيف"}
-            </Button>
-            <Link to="/">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="flex items-center text-amber-700 hover:text-amber-900 hover:bg-amber-50"
-              >
-                <Home className="h-4 w-4 ml-1" /> الرئيسية
-              </Button>
-            </Link>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-amber-700 hover:text-amber-900 border-amber-200"
-              onClick={() => {
-                sessionStorage.removeItem("entranceDashboardAuth");
-                sessionStorage.removeItem("revenueTabAuth");
-                sessionStorage.removeItem("entranceValetMode");
-                setIsAuthenticated(false);
-                setIsRevenueAuthenticated(false);
-                setIsValetMode(false);
-              }}
-            >
-              تسجيل الخروج
-            </Button>
-          </div>
-        </div>
-      </header>
+      <PageHeader
+        title="لوحة تحكم المدخل"
+        showNotifications={true}
+        notificationCount={newNotificationCount}
+        onNotificationClick={() => {
+          document.getElementById("notifications-tab")?.click();
+          setNewNotificationCount(0);
+        }}
+        showValetMode={true}
+        isValetMode={isValetMode}
+        onValetModeToggle={toggleValetModeDialog}
+        onLogout={() => {
+          sessionStorage.removeItem("entranceDashboardAuth");
+          sessionStorage.removeItem("revenueTabAuth");
+          sessionStorage.removeItem("entranceValetMode");
+          setIsAuthenticated(false);
+          setIsRevenueAuthenticated(false);
+          setIsValetMode(false);
+        }}
+      />
 
       {/* Main content */}
       <main className="flex-1 container mx-auto py-8 px-4">
@@ -463,134 +344,35 @@ const EntranceDashboard: React.FC = () => {
         )}
       </main>
 
-      {/* Revenue password dialog */}
-      <Dialog
+      <PasswordDialog
         open={showRevenuePasswordDialog}
         onOpenChange={setShowRevenuePasswordDialog}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-center text-amber-800">
-              تأكيد كلمة المرور
-            </DialogTitle>
-            <DialogDescription className="text-center">
-              يرجى إدخال كلمة المرور للوصول إلى قسم الإيرادات
-            </DialogDescription>
-          </DialogHeader>
+        title="تأكيد كلمة المرور"
+        description="يرجى إدخال كلمة المرور للوصول إلى قسم الإيرادات"
+        password={revenuePassword}
+        onPasswordChange={setRevenuePassword}
+        onSubmit={handleRevenuePasswordSubmit}
+        error={revenuePasswordError}
+        submitButtonText="تأكيد"
+        icon={Lock}
+      />
 
-          <form onSubmit={handleRevenuePasswordSubmit} className="space-y-4">
-            <div className="relative">
-              <Lock className="absolute right-3 top-3 h-5 w-5 text-amber-600" />
-              <Input
-                type="password"
-                value={revenuePassword}
-                onChange={(e) => setRevenuePassword(e.target.value)}
-                className={`pr-10 border-amber-200 focus:border-amber-400 focus:ring-amber-400 ${
-                  revenuePasswordError ? "border-red-500 animate-shake" : ""
-                }`}
-                placeholder="أدخل كلمة المرور"
-                dir="rtl"
-              />
-            </div>
-
-            {revenuePasswordError && (
-              <p className="text-red-500 text-sm text-center">
-                كلمة المرور غير صحيحة. يرجى المحاولة مرة أخرى.
-              </p>
-            )}
-
-            <DialogFooter className="sm:justify-center">
-              <Button
-                type="submit"
-                className="bg-amber-600 hover:bg-amber-700 text-white"
-              >
-                تأكيد
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowRevenuePasswordDialog(false)}
-                className="border-amber-200"
-              >
-                إلغاء
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Valet mode password dialog */}
-      <Dialog
+      <PasswordDialog
         open={showValetPasswordDialog}
         onOpenChange={setShowValetPasswordDialog}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-center text-amber-800">
-              تأكيد كلمة المرور
-            </DialogTitle>
-            <DialogDescription className="text-center">
-              يرجى إدخال كلمة المرور لتفعيل وضع المضيف
-            </DialogDescription>
-          </DialogHeader>
+        title="تأكيد كلمة المرور"
+        description="يرجى إدخال كلمة المرور لتفعيل وضع المضيف"
+        password={valetPassword}
+        onPasswordChange={setValetPassword}
+        onSubmit={handleValetPasswordSubmit}
+        error={valetPasswordError}
+        submitButtonText="تفعيل وضع المضيف"
+        submitButtonClassName="bg-green-600 hover:bg-green-700 text-white"
+        icon={UserCheck}
+        iconColor="text-green-600"
+      />
 
-          <form onSubmit={handleValetPasswordSubmit} className="space-y-4">
-            <div className="relative">
-              <UserCheck className="absolute right-3 top-3 h-5 w-5 text-green-600" />
-              <Input
-                type="password"
-                value={valetPassword}
-                onChange={(e) => setValetPassword(e.target.value)}
-                className={`pr-10 border-amber-200 focus:border-amber-400 focus:ring-amber-400 ${
-                  valetPasswordError ? "border-red-500 animate-shake" : ""
-                }`}
-                placeholder="أدخل كلمة المرور"
-                dir="rtl"
-              />
-            </div>
-
-            {valetPasswordError && (
-              <p className="text-red-500 text-sm text-center">
-                كلمة المرور غير صحيحة. يرجى المحاولة مرة أخرى.
-              </p>
-            )}
-
-            <DialogFooter className="sm:justify-center">
-              <Button
-                type="submit"
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                تفعيل وضع المضيف
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowValetPasswordDialog(false)}
-                className="border-amber-200"
-              >
-                إلغاء
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Footer */}
-      <footer className="bg-white border-t border-amber-200 p-4 mt-auto">
-        <div className="container mx-auto flex justify-between items-center">
-          <div className="flex items-center">
-            <img
-              src="/lloogo.png"
-              alt="أفضل خدمة صف سيارات"
-              className="h-8 ml-3"
-            />
-            <span className="text-sm text-amber-800">أفضل خدمة صف سيارات</span>
-          </div>
-          <p className="text-sm text-amber-700">
-            © {new Date().getFullYear()} عبد الرحمن سعد
-          </p>
-        </div>
-      </footer>
+      <PageFooter />
     </div>
   );
 };

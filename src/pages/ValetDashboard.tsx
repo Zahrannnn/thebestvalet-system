@@ -1,6 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -8,26 +6,33 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast } from "@/components/ui/use-toast";
-import { useValet, Ticket } from "@/context/ValetContext";
-import { CarFront, Home, Search } from "lucide-react";
+import { useValet } from "@/context/ValetContext";
 import NotificationPanel from "@/components/NotificationPanel";
 import PasswordProtection from "@/components/PasswordProtection";
 import { getPasswordByKey } from "@/lib/password-service";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { PageFooter } from "@/components/shared/PageFooter";
+import { TicketSearchInput } from "@/components/shared/TicketSearchInput";
+import { TicketSearchResult } from "@/components/shared/TicketSearchResult";
+import { useTicketSearch } from "@/hooks/useTicketSearch";
+import { useNotificationSound } from "@/hooks/useNotificationSound";
 
 const ValetDashboard: React.FC = () => {
   const { state, getTicketByNumber } = useValet();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Ticket[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const { playSound } = useNotificationSound();
   const pendingRequests = state.carRequests.filter(
     (req) => req.status === "pending"
   );
 
-  // Check if user was previously authenticated in this session
+  const {
+    searchQuery,
+    setSearchQuery,
+    searchResults,
+    handleSearch,
+  } = useTicketSearch(state.tickets);
+
   useEffect(() => {
     const authStatus = sessionStorage.getItem("valetDashboardAuth");
     if (authStatus === "true") {
@@ -35,7 +40,6 @@ const ValetDashboard: React.FC = () => {
     }
   }, []);
 
-  // Store authentication status in session storage
   const handleAuthentication = (success: boolean) => {
     setIsAuthenticated(success);
     if (success) {
@@ -43,45 +47,11 @@ const ValetDashboard: React.FC = () => {
     }
   };
 
-  // Password for accessing the valet dashboard - now from database
   const dashboardPassword = getPasswordByKey("valet");
-
-  const handleSearch = () => {
-    if (!searchQuery.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    const tickets = state.tickets.filter((ticket) =>
-      ticket.ticketNumber.includes(searchQuery.trim())
-    );
-
-    if (tickets.length === 0) {
-      toast({
-        title: "لا توجد نتائج",
-        description: "لم يتم العثور على تذاكر مطابقة لبحثك.",
-      });
-    }
-
-    setSearchResults(tickets);
-  };
-
-  const formatDate = (date: Date) => {
-    return date.toLocaleString("ar-SA", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
 
   useEffect(() => {
     if (pendingRequests.length > 0) {
-      const audio = new Audio(
-        "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3"
-      );
-      audio.volume = 0.5;
-      audio.play().catch((e) => console.log("Audio play failed:", e));
+      playSound();
 
       if (Notification.permission === "granted") {
         const latestRequest = pendingRequests[0];
@@ -97,7 +67,7 @@ const ValetDashboard: React.FC = () => {
         }
       }
     }
-  }, [pendingRequests.length]);
+  }, [pendingRequests.length, playSound, getTicketByNumber, state.tickets]);
 
   if (!isAuthenticated) {
     return (
@@ -111,50 +81,15 @@ const ValetDashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-amber-50" dir="rtl">
-      {/* Header */}
-      <header className="bg-white border-b border-amber-200 p-4 shadow-sm">
-        <div className="container mx-auto flex justify-between items-center">
-          <div className="flex items-center">
-            <img
-              src="/lloogo.png"
-              alt="أفضل خدمة صف سيارات"
-              className="h-12 ml-3"
-            />
-            <h1 className="text-xl font-bold text-amber-800">
-              لوحة تحكم خدمة صف السيارات
-            </h1>
-          </div>
-          <div className="flex items-center space-x-4 space-x-reverse">
-            <div className="relative">
-              {pendingRequests.length > 0 && (
-                <div className="absolute -top-1 -right-1 h-5 w-5 animate-pulse bg-amber-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                  {pendingRequests.length}
-                </div>
-              )}
-            </div>
-            <Link to="/">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="flex items-center text-amber-700 hover:text-amber-900 hover:bg-amber-50"
-              >
-                <Home className="h-4 w-4 ml-1" /> الرئيسية
-              </Button>
-            </Link>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-amber-700 hover:text-amber-900 border-amber-200"
-              onClick={() => {
-                sessionStorage.removeItem("valetDashboardAuth");
-                setIsAuthenticated(false);
-              }}
-            >
-              تسجيل الخروج
-            </Button>
-          </div>
-        </div>
-      </header>
+      <PageHeader
+        title="لوحة تحكم خدمة صف السيارات"
+        showNotifications={true}
+        notificationCount={pendingRequests.length}
+        onLogout={() => {
+          sessionStorage.removeItem("valetDashboardAuth");
+          setIsAuthenticated(false);
+        }}
+      />
 
       {/* Main content */}
       <main className="flex-1 container mx-auto py-8 px-4">
@@ -209,67 +144,16 @@ const ValetDashboard: React.FC = () => {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      <div className="flex space-x-2 space-x-reverse">
-                        <div className="flex-1">
-                          <Input
-                            placeholder="أدخل رقم التذكرة"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleSearch();
-                            }}
-                            className="bg-white border-amber-300 text-amber-900 placeholder:text-amber-400/50"
-                          />
-                        </div>
-                        <Button
-                          onClick={handleSearch}
-                          className="flex items-center bg-amber-600 text-white hover:bg-amber-700"
-                        >
-                          <Search className="h-4 w-4 ml-2" /> بحث
-                        </Button>
-                      </div>
+                      <TicketSearchInput
+                        value={searchQuery}
+                        onChange={setSearchQuery}
+                        onSearch={handleSearch}
+                      />
 
                       {searchResults.length > 0 && (
                         <div className="border border-amber-200 rounded-md divide-y divide-amber-200 bg-white">
                           {searchResults.map((ticket) => (
-                            <div key={ticket.id} className="p-3">
-                              <div className="flex justify-between">
-                                <div>
-                                  <p className="font-medium text-amber-900">
-                                    تذكرة رقم #{ticket.ticketNumber}
-                                  </p>
-                                  <p className="text-sm text-amber-700">
-                                    {ticket.issueDate.toLocaleDateString(
-                                      "en-US",
-                                      {
-                                        day: "2-digit",
-                                        month: "2-digit",
-                                        year: "numeric",
-                                      }
-                                    )}
-                                  </p>
-                                </div>
-                                <div className="text-left">
-                                  <p className="font-medium text-amber-800">
-                                    ${ticket.price.toFixed(2)}
-                                  </p>
-                                  <span
-                                    className={`text-xs px-2 py-1 rounded ${
-                                      ticket.isPaid
-                                        ? "bg-green-100 text-green-800"
-                                        : "bg-red-100 text-red-800"
-                                    }`}
-                                  >
-                                    {ticket.isPaid ? "مدفوع" : "غير مدفوع"}
-                                  </span>
-                                </div>
-                              </div>
-                              {ticket.instructions && (
-                                <p className="mt-2 text-sm text-amber-800 bg-amber-50 p-2 rounded border border-amber-200">
-                                  {ticket.instructions}
-                                </p>
-                              )}
-                            </div>
+                            <TicketSearchResult key={ticket.id} ticket={ticket} />
                           ))}
                         </div>
                       )}
@@ -282,22 +166,7 @@ const ValetDashboard: React.FC = () => {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-amber-200 p-4 mt-auto">
-        <div className="container mx-auto flex justify-between items-center">
-          <div className="flex items-center">
-            <img
-              src="/lloogo.png"
-              alt="أفضل خدمة صف سيارات"
-              className="h-8 ml-3"
-            />
-            <span className="text-sm text-amber-800">أفضل خدمة صف سيارات</span>
-          </div>
-          <p className="text-sm text-amber-700">
-            © {new Date().getFullYear()} عبد الرحمن سعد
-          </p>
-        </div>
-      </footer>
+      <PageFooter />
     </div>
   );
 };

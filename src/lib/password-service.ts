@@ -9,9 +9,7 @@ export interface Password {
   updated_at: string | null;
 }
 
-/**
- * Fetch a specific password by its key
- */
+
 export async function getPasswordByKey(key: string): Promise<string | null> {
   const { data, error } = await supabase
     .from("passwords")
@@ -27,9 +25,7 @@ export async function getPasswordByKey(key: string): Promise<string | null> {
   return data.value;
 }
 
-/**
- * Fetch all passwords
- */
+
 export async function getAllPasswords(): Promise<Password[]> {
   const { data, error } = await supabase
     .from("passwords")
@@ -44,9 +40,6 @@ export async function getAllPasswords(): Promise<Password[]> {
   return data;
 }
 
-/**
- * Update a password
- */
 export async function updatePassword(key: string, value: string): Promise<boolean> {
   const { error } = await supabase
     .from("passwords")
@@ -61,9 +54,7 @@ export async function updatePassword(key: string, value: string): Promise<boolea
   return true;
 }
 
-/**
- * Verify if a password is correct
- */
+
 export async function verifyPassword(key: string, inputPassword: string): Promise<boolean> {
   const correctPassword = await getPasswordByKey(key);
   return correctPassword === inputPassword;

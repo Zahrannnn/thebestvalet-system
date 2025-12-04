@@ -1,18 +1,18 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { CarFront } from "lucide-react";
 import { useValet } from "@/context/ValetContext";
 import { toast } from "@/components/ui/use-toast";
+import { TicketNumberDisplay } from "@/components/shared/TicketNumberDisplay";
+import { Dialpad } from "@/components/shared/Dialpad";
+import { useTicketNumberInput } from "@/hooks/useTicketNumberInput";
 
 const RequestCar: React.FC = () => {
-  const [ticketNumber, setTicketNumber] = useState<string>("");
   const { requestCar, getTicketByNumber } = useValet();
 
-  const handleRequestCar = () => {
-    if (!ticketNumber.trim()) {
+  const handleRequestCar = (value: string) => {
+    if (!value.trim()) {
       toast({
         title: "خطأ",
         description: "الرجاء إدخال رقم التذكرة.",
@@ -21,7 +21,7 @@ const RequestCar: React.FC = () => {
       return;
     }
 
-    const ticket = getTicketByNumber(ticketNumber.trim());
+    const ticket = getTicketByNumber(value.trim());
     if (!ticket) {
       toast({
         title: "خطأ",
@@ -31,28 +31,25 @@ const RequestCar: React.FC = () => {
       return;
     }
 
-    requestCar(ticketNumber.trim());
-    setTicketNumber("");
+    requestCar(value.trim());
   };
+  
+  const {
+    ticketNumber,
+    handleKeyPress,
+    handleBackspace,
+    handleClear,
+    handleKeyDown,
+    handlePaste,
+    reset,
+  } = useTicketNumberInput({
+    maxLength: 5,
+    onEnter: handleRequestCar,
+  });
 
-  // Keyboard handler for typing ticket number
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key >= '0' && e.key <= '9') {
-      setTicketNumber((prev) => prev.length < 5 ? prev + e.key : prev);
-    } else if (e.key === 'Backspace') {
-      setTicketNumber((prev) => prev.slice(0, -1));
-    } else if (e.key === 'Escape') {
-      setTicketNumber("");
-    } else if (e.key === 'Enter') {
-      handleRequestCar();
-    }
-  };
-
-  // Paste handler for the Card
-  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    const pasted = e.clipboardData.getData('Text').replace(/\D/g, '').slice(0, 5);
-    setTicketNumber(pasted);
-    e.preventDefault();
+  const handleSubmit = () => {
+    handleRequestCar(ticketNumber);
+    reset();
   };
 
   return (
@@ -63,51 +60,16 @@ const RequestCar: React.FC = () => {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
-          <div className="flex justify-center items-center my-2">
-            <span className="text-3xl font-mono tracking-widest bg-gray-100 rounded px-4 py-2 min-w-[120px] text-center select-all">
-              {ticketNumber || <span className="text-gray-400">00000</span>}
-            </span>
-          </div>
-          {/* Dialpad */}
-          <div className="grid grid-cols-3 gap-2 max-w-xs mx-auto mt-4">
-            {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((key, idx) => (
-              <Button
-                key={idx}
-                variant="outline"
-                className="text-lg py-6 transition-transform active:scale-95 focus:scale-95"
-                aria-label={key === '⌫' ? 'حذف رقم' : key === '' ? undefined : `رقم ${key}`}
-                onClick={() => {
-                  if (key === "⌫") {
-                    setTicketNumber((prev) => prev.slice(0, -1));
-                  } else if (key === "") {
-                    // Empty cell for layout
-                  } else {
-                    setTicketNumber((prev) => prev.length < 5 ? prev + key : prev);
-                  }
-                }}
-                disabled={key === ""}
-                tabIndex={-1}
-              >
-                {key}
-              </Button>
-            ))}
-            {/* Clear button below the dialpad */}
-            <Button
-              variant="destructive"
-              className="col-span-3 mt-2"
-              onClick={() => setTicketNumber("")}
-              tabIndex={-1}
-              disabled={!ticketNumber}
-            >
-              مسح الكل
-            </Button>
-          </div>
-        </div>
+        <TicketNumberDisplay value={ticketNumber} />
+        <Dialpad
+          onKeyPress={handleKeyPress}
+          onBackspace={handleBackspace}
+          onClear={handleClear}
+        />
       </CardContent>
       <CardFooter>
         <Button 
-          onClick={handleRequestCar}
+          onClick={handleSubmit}
           disabled={!ticketNumber.trim()}
           className="w-full"
         >

@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useReducer, useEffect, useState } from 'react';
-import { toast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { getTicketPrice } from "@/constants/ticketPrices";
+import { fetchAllTickets, createTicket as createTicketService, updateTicketPayment, deleteTicket as deleteTicketService } from "@/services/ticket-service";
+import { fetchAllCarRequests, createCarRequest, updateCarRequestStatus } from "@/services/car-request-service";
 
 export type Ticket = {
   id: string;
@@ -112,50 +113,25 @@ export const ValetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
 
-  // Initial data load
+  
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       
-      // Fetch tickets
-      const { data: ticketsData, error: ticketsError } = await supabase
-        .from('tickets')
-        .select('*');
-      
-      if (ticketsError) {
-        console.error('Error fetching tickets:', ticketsError);
-      } else if (ticketsData) {
-        // Convert data to our format
-        const formattedTickets: Ticket[] = ticketsData.map(ticket => ({
-          id: ticket.id,
-          ticketNumber: ticket.ticket_number,
-          price: Number(ticket.price),
-          issueDate: new Date(ticket.issue_date),
-          companyName: ticket.company_name,
-          isPaid: ticket.is_paid,
-          instructions: ticket.instructions,
-          ticketType: ticket.ticket_type,
-          paymentMethod: ticket.payment_method,
-        }));
-        dispatch({ type: 'SET_TICKETS', payload: formattedTickets });
+      try {
+   
+        const tickets = await fetchAllTickets();
+        dispatch({ type: 'SET_TICKETS', payload: tickets });
+      } catch (error) {
+        console.error('Error fetching tickets:', error);
       }
       
-      // Fetch car requests
-      const { data: requestsData, error: requestsError } = await supabase
-        .from('car_requests')
-        .select('*');
-      
-      if (requestsError) {
-        console.error('Error fetching car requests:', requestsError);
-      } else if (requestsData) {
-        // Convert data to our format
-        const formattedRequests: CarRequest[] = requestsData.map(request => ({
-          id: request.id,
-          ticketId: request.ticket_id,
-          status: request.status as 'pending' | 'accepted' | 'completed',
-          requestTime: new Date(request.request_time),
-        }));
-        dispatch({ type: 'SET_CAR_REQUESTS', payload: formattedRequests });
+      try {
+
+        const requests = await fetchAllCarRequests();
+        dispatch({ type: 'SET_CAR_REQUESTS', payload: requests });
+      } catch (error) {
+        console.error('Error fetching car requests:', error);
       }
       
       setLoading(false);
@@ -164,9 +140,9 @@ export const ValetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     fetchData();
   }, []);
 
-  // Set up realtime subscriptions
+
   useEffect(() => {
-    // Subscribe to changes in car_requests table
+   
     const carRequestsChannel = supabase
       .channel('car_requests_changes')
       .on('postgres_changes', 
@@ -178,27 +154,12 @@ export const ValetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         async (payload) => {
           console.log('Car request change received:', payload);
           
-          // Reload all car requests to keep things simple
-          const { data, error } = await supabase
-            .from('car_requests')
-            .select('*');
           
-          if (error) {
-            console.error('Error refreshing car requests:', error);
-            return;
-          }
-          
-          if (data) {
-            const formattedRequests: CarRequest[] = data.map(request => ({
-              id: request.id,
-              ticketId: request.ticket_id,
-              status: request.status as 'pending' | 'accepted' | 'completed',
-              requestTime: new Date(request.request_time),
-            }));
+          try {
+            const requests = await fetchAllCarRequests();
+            dispatch({ type: 'SET_CAR_REQUESTS', payload: requests });
             
-            dispatch({ type: 'SET_CAR_REQUESTS', payload: formattedRequests });
             
-            // Show notification for status changes
             if (payload.eventType === 'UPDATE') {
               const newData = payload.new;
               const ticketInfo = state.tickets.find(t => t.id === newData.ticket_id);
@@ -219,12 +180,14 @@ export const ValetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 });
               }
             }
+          } catch (error) {
+            console.error('Error refreshing car requests:', error);
           }
         }
       )
       .subscribe();
 
-    // Subscribe to changes in tickets table (especially deletions)
+    
     const ticketsChannel = supabase
       .channel('tickets_changes')
       .on('postgres_changes', 
@@ -236,30 +199,12 @@ export const ValetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         async (payload) => {
           console.log('Ticket change received:', payload);
           
-          // Reload all tickets to keep things simple
-          const { data, error } = await supabase
-            .from('tickets')
-            .select('*');
           
-          if (error) {
+          try {
+            const tickets = await fetchAllTickets();
+            dispatch({ type: 'SET_TICKETS', payload: tickets });
+          } catch (error) {
             console.error('Error refreshing tickets:', error);
-            return;
-          }
-          
-          if (data) {
-            const formattedTickets: Ticket[] = data.map(ticket => ({
-              id: ticket.id,
-              ticketNumber: ticket.ticket_number,
-              price: Number(ticket.price),
-              issueDate: new Date(ticket.issue_date),
-              companyName: ticket.company_name,
-              isPaid: ticket.is_paid,
-              instructions: ticket.instructions,
-              ticketType: ticket.ticket_type,
-              paymentMethod: ticket.payment_method,
-            }));
-            
-            dispatch({ type: 'SET_TICKETS', payload: formattedTickets });
           }
         }
       )
@@ -270,13 +215,13 @@ export const ValetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       supabase.removeChannel(carRequestsChannel);
       supabase.removeChannel(ticketsChannel);
     };
-  }, [state.tickets]);
+  }, [state.tickets, toast]);
 
   const generateTicket = async (price: number, ticketType: string, instructions?: string): Promise<Ticket> => {
-    // Get the highest existing ticket number
+    
     let highestNumber = 0;
     
-    // Find highest ticket number from existing tickets
+    
     state.tickets.forEach(ticket => {
       const ticketNum = parseInt(ticket.ticketNumber, 10);
       if (!isNaN(ticketNum) && ticketNum > highestNumber) {
@@ -284,30 +229,27 @@ export const ValetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     });
     
-    // Increment the highest number by 1
+    
     const nextNumber = highestNumber + 1;
     
-    // Format as 5-digit number with leading zeros (00000, 00001, etc.)
+    
     const ticketNumber = nextNumber.toString().padStart(5, '0');
     
-    // Use constant price based on ticket type, ignore the passed-in price
+    
     const constantPrice = getTicketPrice(ticketType);
     
-    // Insert into Supabase
-    const { data, error } = await supabase
-      .from('tickets')
-      .insert({
-        ticket_number: ticketNumber,
+    try {
+      const newTicket = await createTicketService({
+        ticketNumber,
         price: constantPrice,
-        company_name: "Valet Parking Pro",
-        is_paid: false,
+        ticketType,
         instructions,
-        ticket_type: ticketType
-      })
-      .select()
-      .single();
-    
-    if (error) {
+        companyName: "Valet Parking Pro",
+      });
+      
+      dispatch({ type: 'ADD_TICKET', payload: newTicket });
+      return newTicket;
+    } catch (error) {
       console.error('Error creating ticket:', error);
       toast({
         title: "Error",
@@ -316,22 +258,6 @@ export const ValetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
       throw error;
     }
-    
-    // Convert to our format
-    const newTicket: Ticket = {
-      id: data.id,
-      ticketNumber: data.ticket_number,
-      price: Number(data.price),
-      issueDate: new Date(data.issue_date),
-      companyName: data.company_name,
-      isPaid: data.is_paid,
-      instructions: data.instructions,
-      ticketType: data.ticket_type,
-      paymentMethod: data.payment_method,
-    };
-    
-    dispatch({ type: 'ADD_TICKET', payload: newTicket });
-    return newTicket;
   };
 
   const requestCar = async (ticketNumber: string) => {
@@ -346,13 +272,13 @@ export const ValetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
 
-    // Simplify the check - find ANY requests for this ticket ID regardless of status
+    
     const existingRequest = state.carRequests.find(req => req.ticketId === ticket.id);
 
     if (existingRequest) {
       let message = "";
       
-      // Customize message based on status
+      
       if (existingRequest.status === 'pending') {
         message = "هذه السيارة تم طلبها بالفعل وفي انتظار المضيف.";
       } else if (existingRequest.status === 'accepted') {
@@ -369,143 +295,78 @@ export const ValetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
 
-    // Insert into Supabase
-    const { data, error } = await supabase
-      .from('car_requests')
-      .insert({
-        ticket_id: ticket.id,
-        status: 'pending' as 'pending' | 'accepted' | 'completed'
-      })
-      .select()
-      .single();
-      
-    if (error) {
+    try {
+      const newRequest = await createCarRequest(ticket.id);
+      dispatch({ type: 'REQUEST_CAR', payload: newRequest });
+      toast({
+        title: "تم طلب السيارة",
+        description: `تم إرسال طلبك للسيارة رقم ${ticketNumber} إلى المضيف.`,
+        variant: "default",
+      });
+    } catch (error) {
       console.error('Error creating car request:', error);
       toast({
         title: "خطأ",
         description: "فشل في إنشاء طلب السيارة. يرجى المحاولة مرة أخرى.",
         variant: "destructive",
       });
-      return;
     }
-    
-    // Convert to our format
-    const newRequest: CarRequest = {
-      id: data.id,
-      ticketId: data.ticket_id,
-      status: data.status as 'pending' | 'accepted' | 'completed',
-      requestTime: new Date(data.request_time)
-    };
-
-    dispatch({ type: 'REQUEST_CAR', payload: newRequest });
-    
-    toast({
-      title: "تم طلب السيارة",
-      description: `تم إرسال طلبك للسيارة رقم ${ticketNumber} إلى المضيف.`,
-      variant: "default",
-    });
   };
 
   const updateRequestStatus = async (requestId: string, status: 'pending' | 'accepted' | 'completed') => {
-    // Update in Supabase
-    const { error } = await supabase
-      .from('car_requests')
-      .update({ status })
-      .eq('id', requestId);
-      
-    if (error) {
+    try {
+      await updateCarRequestStatus(requestId, status);
+      dispatch({ type: 'UPDATE_REQUEST_STATUS', payload: { id: requestId, status } });
+  
+      if (status === 'accepted') {
+        toast({
+          title: "تم قبول الطلب",
+          description: "يقوم المضيف باسترجاع سيارتك.",
+        });
+      } else if (status === 'completed') {
+        toast({
+          title: "تم إكمال الطلب",
+          description: "تم تسليم السيارة.",
+        });
+        
+        
+      }
+    } catch (error) {
       console.error('Error updating request status:', error);
       toast({
         title: "خطأ",
         description: "فشل في تحديث حالة الطلب. يرجى المحاولة مرة أخرى.",
         variant: "destructive",
       });
-      return;
-    }
-    
-    dispatch({ type: 'UPDATE_REQUEST_STATUS', payload: { id: requestId, status } });
-    
-    // Show appropriate toast message
-    if (status === 'accepted') {
-      toast({
-        title: "تم قبول الطلب",
-        description: "يقوم المضيف باسترجاع سيارتك.",
-      });
-    } else if (status === 'completed') {
-      toast({
-        title: "تم إكمال الطلب",
-        description: "تم تسليم السيارة.",
-      });
-      
-      // Auto-deletion removed - will be handled manually
     }
   };
 
   const updatePaymentStatus = async (ticketId: string, isPaid: boolean, paymentMethod?: string) => {
-    // Update in Supabase
-    const { error } = await supabase
-      .from('tickets')
-      .update({ 
-        is_paid: isPaid,
-        payment_method: paymentMethod 
-      })
-      .eq('id', ticketId);
+    try {
+      await updateTicketPayment(ticketId, isPaid, paymentMethod);
+      dispatch({ type: 'UPDATE_PAYMENT_STATUS', payload: { ticketId, isPaid } });
       
-    if (error) {
+      toast({
+        title: isPaid ? "تم اكتمال الدفع" : "تم تحديث الدفع",
+        description: isPaid ? "تم تحديد التذكرة كمدفوعة." : "تم تحديث حالة الدفع.",
+      });
+
+      
+    } catch (error) {
       console.error('Error updating payment status:', error);
       toast({
         title: "خطأ",
         description: "فشل في تحديث حالة الدفع. يرجى المحاولة مرة أخرى.",
         variant: "destructive",
       });
-      return;
     }
-    
-    dispatch({ type: 'UPDATE_PAYMENT_STATUS', payload: { ticketId, isPaid } });
-    
-    toast({
-      title: isPaid ? "تم اكتمال الدفع" : "تم تحديث الدفع",
-      description: isPaid ? "تم تحديد التذكرة كمدفوعة." : "تم تحديث حالة الدفع.",
-    });
-
-    // Auto-deletion removed - will be handled manually
   };
 
   const deleteTicket = async (ticketId: string) => {
     console.log(`Attempting deletion of ticket with ID: ${ticketId}`);
     
     try {
-      // First, delete all car requests for this ticket
-      const { error: requestsError } = await supabase
-        .from('car_requests')
-        .delete()
-        .eq('ticket_id', ticketId);
-        
-      if (requestsError) {
-        console.error('Failed to delete car requests:', requestsError);
-        toast({
-          title: "خطأ",
-          description: "فشل في حذف الطلبات المرتبطة بالتذكرة.",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      // Then delete the ticket itself
-      const { error: ticketError } = await supabase
-        .from('tickets')
-        .delete()
-        .eq('id', ticketId);
-        
-      if (ticketError) {
-        console.error('Failed to delete ticket:', ticketError);
-        toast({
-          title: "خطأ",
-          description: "فشل في حذف التذكرة.",
-          variant: "destructive",
-        });
-        return;
-      }
+      await deleteTicketService(ticketId);
       
       // Update local state
       dispatch({ type: 'DELETE_TICKET', payload: { ticketId } });
